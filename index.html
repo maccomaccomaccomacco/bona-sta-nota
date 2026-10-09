@@ -41,6 +41,8 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .stat span{color:var(--soft);font-size:.9rem}
 .verdict{background:var(--card);border-radius:12px;padding:16px;margin:0 0 12px;line-height:1.5}
 .missed{color:var(--soft);line-height:1.5;margin:0}
+.switch{display:flex;align-items:center;gap:8px;font-size:.9rem;color:var(--soft);margin:0 0 8px;cursor:pointer}
+.switch input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 </style>
 </head>
 <body>
@@ -49,15 +51,18 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 <h1>Che nota è?</h1>
 <p class="lead">Ti mostro una nota sull'endecagramma, tu scegli nome e ottava. Appena hai scelto entrambi, controllo subito e passo alla nota successiva.</p>
 <div class="group"><p>Quanto vuoi giocare?</p><div class="row" id="modes"></div></div>
+<div class="group"><p>Prossima nota</p><div class="row" id="adv"></div></div>
 <button class="main-btn" id="startBtn">Inizia</button>
 </section>
 
 <section id="game" hidden>
 <div class="bar"><span id="score">Giuste 0 su 0</span><span class="time" id="time">0:00</span></div>
+<label class="switch"><input type="checkbox" id="autoSw" checked> Prossima nota automatica</label>
 <div class="staff"><svg id="svg" viewBox="0 0 360 340" role="img" aria-label="Endecagramma con una nota"></svg></div>
 <div class="group"><p>Nota</p><div class="row" id="notes"></div></div>
 <div class="group"><p>Ottava</p><div class="row" id="octaves"></div></div>
 <p class="feedback" id="fb" aria-live="polite"></p>
+<button class="main-btn" id="nextBtn" hidden>Prossima nota</button>
 <button class="ghost-btn" id="stopBtn">Ferma</button>
 </section>
 
@@ -82,7 +87,7 @@ const MODES=[{label:'1 min',sec:60},{label:'2 min',sec:120},{label:'5 min',sec:3
 const STAVES=[{bottomIdx:30,bottomY:118,lo:22,hi:46},{bottomIdx:18,bottomY:268,lo:10,hi:34}];
 const $=id=>document.getElementById(id);
 const svg=$('svg'),fb=$('fb'),notesEl=$('notes'),octEl=$('octaves'),modesEl=$('modes');
-let mode=0,cur=null,selNote=null,selOct=null,locked=false,right=0,total=0,missed=[],t0=0,timer=null,nextTimer=null,running=false;
+let mode=0,cur=null,selNote=null,selOct=null,locked=false,right=0,total=0,missed=[],t0=0,timer=null,nextTimer=null,running=false,auto=true,pausedTotal=0,pauseStart=0;
 
 function draw(color){
   let s='';
@@ -111,8 +116,18 @@ makeButtons(modesEl,MODES,m=>m.label,i=>{mode=i;mark(modesEl,mode);});
 makeButtons(notesEl,NAMES,v=>v,i=>{if(locked)return;selNote=i;mark(notesEl,i);check();});
 makeButtons(octEl,OCT,v=>String(v),i=>{if(locked)return;selOct=OCT[i];mark(octEl,i);check();});
 mark(modesEl,mode);
+makeButtons($('adv'),['Automatica','Manuale'],v=>v,i=>setAuto(i===0));mark($('adv'),0);
+function setAuto(v){
+  auto=v;mark($('adv'),v?0:1);$('autoSw').checked=v;
+  if(running&&locked){clearTimeout(nextTimer);
+    if(v){$('nextBtn').hidden=true;nextTimer=setTimeout(()=>{if(running)newNote();},500);}
+    else $('nextBtn').hidden=false;}
+}
+$('autoSw').onchange=e=>setAuto(e.target.checked);
 
 function newNote(){
+  if(pauseStart){pausedTotal+=Date.now()-pauseStart;pauseStart=0;}
+  $('nextBtn').hidden=true;
   let c;
   do{const staff=Math.random()<0.5?0:1,st=STAVES[staff];c={staff,n:st.lo+Math.floor(Math.random()*(st.hi-st.lo+1))};}
   while(cur&&c.n===cur.n&&c.staff===cur.staff);
@@ -121,28 +136,29 @@ function newNote(){
 }
 function check(){
   if(selNote===null||selOct===null||!running)return;
-  locked=true;total++;
+  locked=true;total++;pauseStart=Date.now();
   const guess=(selOct+1)*7+selNote;let wait;
   if(guess===cur.n){right++;fb.textContent='Giusto, è '+label(cur.n);fb.className='feedback ok';draw('var(--ok)');wait=700;}
   else{missed.push(label(cur.n));fb.textContent='Era '+label(cur.n)+', hai scelto '+NAMES[selNote]+selOct;fb.className='feedback ko';draw('var(--ko)');wait=1600;}
   $('score').textContent='Giuste '+right+' su '+total;
-  nextTimer=setTimeout(()=>{if(running)newNote();},wait);
+  if(auto)nextTimer=setTimeout(()=>{if(running)newNote();},wait);else $('nextBtn').hidden=false;
 }
+const active=()=>(Date.now()-t0-pausedTotal-(pauseStart?Date.now()-pauseStart:0))/1000;
 const fmt=s=>{s=Math.max(0,Math.ceil(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 function tick(){
-  const el=(Date.now()-t0)/1000,lim=MODES[mode].sec;
+  const el=active(),lim=MODES[mode].sec;
   if(lim){$('time').textContent=fmt(lim-el);if(el>=lim)stop();}
   else $('time').textContent=fmt(Math.floor(el));
 }
 function show(id){['start','game','report'].forEach(s=>$(s).hidden=s!==id);}
 $('startBtn').onclick=()=>{
-  right=0;total=0;missed=[];cur=null;running=true;
+  right=0;total=0;missed=[];cur=null;running=true;pausedTotal=0;pauseStart=0;
   $('score').textContent='Giuste 0 su 0';show('game');newNote();
   t0=Date.now();tick();timer=setInterval(tick,250);
 };
 function stop(){
   if(!running)return;running=false;clearInterval(timer);clearTimeout(nextTimer);
-  const secs=(Date.now()-t0)/1000,acc=total?Math.round(right/total*100):0,avg=total?secs/total:0;
+  const secs=active(),acc=total?Math.round(right/total*100):0,avg=total?secs/total:0;
   $('rRight').textContent=right;$('rWrong').textContent=total-right;
   $('rAcc').textContent=acc+'%';$('rAvg').textContent=(total?avg.toFixed(1):'0')+' s';
   let v;
@@ -158,6 +174,7 @@ function stop(){
   show('report');
 }
 $('stopBtn').onclick=stop;
+$('nextBtn').onclick=()=>{if(running)newNote();};
 $('againBtn').onclick=()=>show('start');
 draw();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{if(!locked)draw();});
 </script>
