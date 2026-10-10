@@ -93,7 +93,7 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 <h2>I tuoi progressi</h2>
 <div id="progBody"></div>
 <button class="main-btn" id="backBtn">Torna all'inizio</button>
-<button class="ghost-btn" id="clearHist">Cancella lo storico</button>
+<button class="ghost-btn" id="clearHist">Azzera tutti i progressi</button>
 </section>
 </main>
 <script>
@@ -219,6 +219,7 @@ function chart(vals,max,unit,color){
   return s;
 }
 function showProgress(){
+  const cb=$('clearHist');delete cb.dataset.sure;cb.textContent='Azzera tutti i progressi';
   const body=$('progBody'),last=hist.slice(-30);
   if(!hist.length){body.innerHTML='<p class="lead">Non hai ancora finito nessun esercizio. Gioca una partita e torna qui.</p>';show('progress');return;}
   const maxT=Math.max(1,...last.map(h=>h.s));
@@ -230,7 +231,7 @@ function showProgress(){
 }
 $('progBtn').onclick=showProgress;$('progBtn2').onclick=showProgress;
 $('backBtn').onclick=()=>{$('resetBtn').textContent='Azzera le note da ripassare';show('start');};
-$('clearHist').onclick=()=>{hist=[];saveHist();showProgress();};
+$('clearHist').onclick=()=>{const b=$('clearHist');if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Tocca di nuovo per confermare';return;}hist=[];saveHist();stats={};save();delete b.dataset.sure;b.textContent='Azzera tutti i progressi';showProgress();};
 draw();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{if(!locked)draw();});
 </script>
 </body>
