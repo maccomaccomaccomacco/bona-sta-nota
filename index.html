@@ -41,6 +41,12 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .stat span{color:var(--soft);font-size:.9rem}
 .verdict{background:var(--card);border-radius:12px;padding:16px;margin:0 0 12px;line-height:1.5}
 .missed{color:var(--soft);line-height:1.5;margin:0}
+.chart{background:var(--card);border-radius:12px;padding:12px;margin:0 0 12px}
+.chart p{margin:0 0 6px;font-size:.9rem;color:var(--soft)}
+.chart svg{display:block;width:100%;height:auto}
+.hist{width:100%;border-collapse:collapse;font-size:.9rem;font-variant-numeric:tabular-nums;margin:0 0 12px}
+.hist th,.hist td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+.hist th{color:var(--soft);font-weight:400}
 .switch{display:flex;align-items:center;gap:8px;font-size:.9rem;color:var(--soft);margin:0 0 8px;cursor:pointer}
 .switch input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 </style>
@@ -54,6 +60,7 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 <div class="group"><p>Prossima nota</p><div class="row" id="adv"></div></div>
 <button class="main-btn" id="startBtn">Inizia</button>
 <button class="ghost-btn" id="resetBtn">Azzera le note da ripassare</button>
+<button class="ghost-btn" id="progBtn">I tuoi progressi</button>
 </section>
 
 <section id="game" hidden>
@@ -79,6 +86,14 @@ button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 <p class="missed" id="missed"></p>
 <p class="missed" id="hard" style="margin-top:8px"></p>
 <button class="main-btn" id="againBtn">Gioca ancora</button>
+<button class="ghost-btn" id="progBtn2">I tuoi progressi</button>
+</section>
+
+<section id="progress" hidden>
+<h2>I tuoi progressi</h2>
+<div id="progBody"></div>
+<button class="main-btn" id="backBtn">Torna all'inizio</button>
+<button class="ghost-btn" id="clearHist">Cancella lo storico</button>
 </section>
 </main>
 <script>
@@ -92,6 +107,9 @@ let stats={};try{stats=JSON.parse(localStorage.getItem(KEY))||{};}catch(e){stats
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(stats));}catch(e){}};
 const kOf=(staff,n)=>staff+'-'+n;
 const wOf=k=>{const s=stats[k];return s?1+Math.min(5,Math.max(0,s.ko*2-s.ok)):1;};
+const HKEY='che-nota-e-history';
+let hist=[];try{hist=JSON.parse(localStorage.getItem(HKEY))||[];}catch(e){hist=[];}
+const saveHist=()=>{try{localStorage.setItem(HKEY,JSON.stringify(hist));}catch(e){}};
 const $=id=>document.getElementById(id);
 const svg=$('svg'),fb=$('fb'),notesEl=$('notes'),octEl=$('octaves'),modesEl=$('modes');
 let mode=0,cur=null,selNote=null,selOct=null,locked=false,right=0,total=0,missed=[],t0=0,timer=null,nextTimer=null,running=false,auto=true,pausedTotal=0,pauseStart=0;
@@ -156,18 +174,19 @@ const active=()=>(Date.now()-t0-pausedTotal-(pauseStart?Date.now()-pauseStart:0)
 const fmt=s=>{s=Math.max(0,Math.ceil(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 function tick(){
   const el=active(),lim=MODES[mode].sec;
-  if(lim){$('time').textContent=fmt(lim-el);if(el>=lim)stop();}
+  if(lim){$('time').textContent=fmt(lim-el);if(el>=lim)stop(true);}
   else $('time').textContent=fmt(Math.floor(el));
 }
-function show(id){['start','game','report'].forEach(s=>$(s).hidden=s!==id);}
+function show(id){['start','game','report','progress'].forEach(s=>$(s).hidden=s!==id);}
 $('startBtn').onclick=()=>{
   right=0;total=0;missed=[];cur=null;running=true;pausedTotal=0;pauseStart=0;
   $('score').textContent='Giuste 0 su 0';show('game');newNote();
   t0=Date.now();tick();timer=setInterval(tick,250);
 };
-function stop(){
+function stop(done){
   if(!running)return;running=false;clearInterval(timer);clearTimeout(nextTimer);
   const secs=active(),acc=total?Math.round(right/total*100):0,avg=total?secs/total:0;
+  if(done===true&&total>0){hist.push({d:Date.now(),m:MODES[mode].label,t:total,r:right,a:acc,s:+avg.toFixed(1)});saveHist();}
   $('rRight').textContent=right;$('rWrong').textContent=total-right;
   $('rAcc').textContent=acc+'%';$('rAvg').textContent=(total?avg.toFixed(1):'0')+' s';
   let v;
@@ -184,10 +203,34 @@ function stop(){
   $('hard').textContent=hard.length?'Le note che sbagli più spesso, contando tutte le partite: '+hard.join(', ')+'. Te le propongo più spesso finché non inizi a indovinarle.':'';
   show('report');
 }
-$('stopBtn').onclick=stop;
+$('stopBtn').onclick=()=>stop(false);
 $('nextBtn').onclick=()=>{if(running)newNote();};
 $('againBtn').onclick=()=>{$('resetBtn').textContent='Azzera le note da ripassare';show('start');};
 $('resetBtn').onclick=()=>{stats={};save();$('resetBtn').textContent='Statistiche azzerate';};
+function chart(vals,max,unit,color){
+  const W=320,H=120,l=36,rp=8,t=8,b=20,n=vals.length;
+  const x=i=>n===1?(l+W-rp)/2:l+i*(W-l-rp)/(n-1);
+  const y=v=>t+(1-v/max)*(H-t-b);
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  [0,0.5,1].forEach(f=>{const v=max*f,yy=y(v);s+=`<line x1="${l}" y1="${yy}" x2="${W-rp}" y2="${yy}" stroke="var(--line)"/><text x="${l-6}" y="${yy+4}" text-anchor="end" font-size="11" fill="var(--soft)">${Math.round(v*10)/10}${unit}</text>`;});
+  if(n>1)s+=`<polyline points="${vals.map((v,i)=>x(i)+','+y(v)).join(' ')}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>`;
+  vals.forEach((v,i)=>{s+=`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${color}"/>`;});
+  s+=`<text x="${l}" y="${H-4}" font-size="11" fill="var(--soft)">prima</text><text x="${W-rp}" y="${H-4}" text-anchor="end" font-size="11" fill="var(--soft)">ultima</text></svg>`;
+  return s;
+}
+function showProgress(){
+  const body=$('progBody'),last=hist.slice(-30);
+  if(!hist.length){body.innerHTML='<p class="lead">Non hai ancora finito nessun esercizio. Gioca una partita e torna qui.</p>';show('progress');return;}
+  const maxT=Math.max(1,...last.map(h=>h.s));
+  let html=`<div class="chart"><p>Precisione</p>${chart(last.map(h=>h.a),100,'%','var(--accent)')}</div>`;
+  html+=`<div class="chart"><p>Tempo medio per nota (più basso è meglio)</p>${chart(last.map(h=>h.s),Math.ceil(maxT),' s','var(--ok)')}</div>`;
+  html+='<table class="hist"><tr><th>Data</th><th>Durata</th><th>Giuste</th><th>Prec.</th><th>Tempo</th></tr>';
+  hist.slice().reverse().slice(0,20).forEach(h=>{const d=new Date(h.d);html+=`<tr><td>${d.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'})} ${d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</td><td>${h.m}</td><td>${h.r}/${h.t}</td><td>${h.a}%</td><td>${h.s} s</td></tr>`;});
+  body.innerHTML=html+'</table>';show('progress');
+}
+$('progBtn').onclick=showProgress;$('progBtn2').onclick=showProgress;
+$('backBtn').onclick=()=>{$('resetBtn').textContent='Azzera le note da ripassare';show('start');};
+$('clearHist').onclick=()=>{hist=[];saveHist();showProgress();};
 draw();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{if(!locked)draw();});
 </script>
 </body>
